@@ -674,6 +674,9 @@ uint256 GetOrphanRoot(const CBlock* pblock)
 
 int64 CBlock::GetBlockValue(int64 nFees) const
 {
+    //# This code has a subtle bug, which was resolved to be
+    //# fixed via a soft fork far in the future.
+    //# see https://github.com/bitcoin/bips/blob/master/bip-0042.mediawiki
     int64 nSubsidy = 50 * COIN;
 
     // Subsidy is cut in half every 4 years
@@ -2183,15 +2186,19 @@ void BlockSHA256(const void* pin, unsigned int nBlocks, void* pout)
 bool BitcoinMiner()
 {
     printf("BitcoinMiner started\n");
+    //# Bitcoin was just an experiment, so of course mining was low priority :p
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
 
+    //# We generate a random new key (note this isn't yet saved)
     CKey key;
     key.MakeNewKey();
     CBigNum bnExtraNonce = 0;
     while (fGenerateBitcoins)
     {
-        Sleep(50);
+        Sleep(50); //# millis
         CheckForShutdown(3);
+        //# This code is really meant to only be hit on startup
+        //# before we connect to any peers
         while (vNodes.empty())
         {
             Sleep(1000);
@@ -2199,6 +2206,8 @@ bool BitcoinMiner()
         }
 
         unsigned int nTransactionsUpdatedLast = nTransactionsUpdated;
+        //# We get the best block in our chain, and compute the work required
+        //# in the next block
         CBlockIndex* pindexPrev = pindexBest;
         unsigned int nBits = GetNextWorkRequired(pindexPrev);
 
@@ -2231,13 +2240,18 @@ bool BitcoinMiner()
         {
             CTxDB txdb("r");
             map<uint256, CTxIndex> mapTestPool;
+            //# These are really bools, but vector<bool> has a funky implementation
             vector<char> vfAlreadyAdded(mapTransactions.size());
             bool fFoundSomething = true;
             unsigned int nBlockSize = 0;
+            //# When we no longer find a new transaction to add, exit this section.
+            //# Or if the size will be larger than about 16MB
             while (fFoundSomething && nBlockSize < MAX_SIZE/2)
             {
                 fFoundSomething = false;
                 unsigned int n = 0;
+                //# This loop is kinda hideous; we iterate over the entire map
+                //# each loop until we stop finding a new TX
                 for (map<uint256, CTransaction>::iterator mi = mapTransactions.begin(); mi != mapTransactions.end(); ++mi, ++n)
                 {
                     if (vfAlreadyAdded[n])
@@ -2252,11 +2266,13 @@ bool BitcoinMiner()
                     int64 nMinFee = tx.GetMinFee(pblock->vtx.size() < 100);
 
                     map<uint256, CTxIndex> mapTestPoolTmp(mapTestPool);
+                    //# Skip this transaction if the inputs don't connect
                     if (!tx.ConnectInputs(txdb, mapTestPoolTmp, CDiskTxPos(1,1,1), 0, nFees, false, true, nMinFee))
                         continue;
                     swap(mapTestPool, mapTestPoolTmp);
 
                     pblock->vtx.push_back(tx);
+                    //# bug: In theory, nBlockSize can exceed MAX_SIZE with a really big transaction
                     nBlockSize += ::GetSerializeSize(tx, SER_NETWORK);
                     vfAlreadyAdded[n] = true;
                     fFoundSomething = true;
@@ -2264,10 +2280,12 @@ bool BitcoinMiner()
             }
         }
         pblock->nBits = nBits;
+        //# rewards miners with the fees + the block reward
         pblock->vtx[0].vout[0].nValue = pblock->GetBlockValue(nFees);
         printf("\n\nRunning BitcoinMiner with %d transactions in block\n", pblock->vtx.size());
 
 
+        //# This funky hash buffer is an optimized hashing technique
         //
         // Prebuild hash buffer
         //
@@ -2283,6 +2301,7 @@ bool BitcoinMiner()
                 unsigned int nNonce;
             }
             block;
+            //# This extra padding is for length padding
             unsigned char pchPadding0[64];
             uint256 hash1;
             unsigned char pchPadding1[64];
@@ -2290,12 +2309,20 @@ bool BitcoinMiner()
         tmp;
 
         tmp.block.nVersion       = pblock->nVersion;
+        //# Either last block, or 0
         tmp.block.hashPrevBlock  = pblock->hashPrevBlock  = (pindexPrev ? pindexPrev->GetBlockHash() : 0);
+        //# computes the block merkle root
         tmp.block.hashMerkleRoot = pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+        //# The nTime is the greater of the median time of the last several
+        //# blocks, or the current time according to our system's clocks.
         tmp.block.nTime          = pblock->nTime          = max((pindexPrev ? pindexPrev->GetMedianTimePast()+1 : 0), GetAdjustedTime());
         tmp.block.nBits          = pblock->nBits          = nBits;
         tmp.block.nNonce         = pblock->nNonce         = 1;
 
+        //# Really we should do something like test that the block we put
+        //# together is valid before mining on it!
+
+        //# this zeroes out the pchPadding fields and adds the data length
         unsigned int nBlocks0 = FormatHashBlocks(&tmp.block, sizeof(tmp.block));
         unsigned int nBlocks1 = FormatHashBlocks(&tmp.hash1, sizeof(tmp.hash1));
 
@@ -2308,10 +2335,12 @@ bool BitcoinMiner()
         uint256 hash;
         loop
         {
+            //# Double hash the block!
             BlockSHA256(&tmp.block, nBlocks0, &tmp.hash1);
             BlockSHA256(&tmp.hash1, nBlocks1, &hash);
 
 
+            //# Found a block!
             if (hash <= hashTarget)
             {
                 pblock->nNonce = tmp.block.nNonce;
@@ -2325,6 +2354,7 @@ bool BitcoinMiner()
                 SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
                 CRITICAL_BLOCK(cs_main)
                 {
+                    //# Only if we find a block do we save the key...
                     // Save key
                     if (!AddKey(key))
                         return false;
@@ -2341,13 +2371,17 @@ bool BitcoinMiner()
             }
 
             // Update nTime every few seconds
+            //# This is based on measured hashrate!
             if ((++tmp.block.nNonce & 0x3ffff) == 0)
             {
                 CheckForShutdown(3);
                 if (tmp.block.nNonce == 0)
                     break;
+                //# This means that there's been a new block found
                 if (pindexPrev != pindexBest)
                     break;
+                //# There are new transactions to check out, and it's been a
+                //# minute
                 if (nTransactionsUpdated != nTransactionsUpdatedLast && GetTime() - nStart > 60)
                     break;
                 if (!fGenerateBitcoins)

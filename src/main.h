@@ -58,6 +58,7 @@ void ReacceptWalletTransactions();
 void RelayWalletTransactions();
 bool LoadBlockIndex(bool fAllowNew=true);
 void PrintBlockTree();
+//# Generates Bitcoin!
 bool BitcoinMiner();
 bool ProcessMessages(CNode* pfrom);
 bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv);
