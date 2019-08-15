@@ -5,6 +5,8 @@
 #include "headers.h"
 
 
+//# A Basic IRC implementation which handles advertising ip/port
+//# for Bitcoin nodes to help 'bootstrap the network'
 
 
 #pragma pack(1)
@@ -141,6 +143,12 @@ bool RecvUntil(SOCKET hSocket, const char* psz1, const char* psz2=NULL, const ch
 
 bool fRestartIRCSeed = false;
 
+//# Basic logic for ThreadIRCSeed:
+//# 1) Join the IRC Channel #bitcoin with NICK = "u" + Base58(ip)
+//# 2) Query the channel for all currently joined members
+//# 3) Listen for newly joined members
+//
+//# If the user's IP is not routable, then they can only make outbound connections
 void ThreadIRCSeed(void* parg)
 {
     loop
@@ -161,11 +169,14 @@ void ThreadIRCSeed(void* parg)
             return;
         }
 
+        //# Base58 Encode our address as a nickname
         string strMyName = EncodeAddress(addrLocalHost);
 
+        //# Pick a random nickname if our address isn't routable
         if (!addrLocalHost.IsRoutable())
             strMyName = strprintf("x%u", GetRand(1000000000));
 
+        //# Set our nickname 
         Send(hSocket, strprintf("NICK %s\r", strMyName.c_str()).c_str());
         Send(hSocket, strprintf("USER %s 8 * : %s\r", strMyName.c_str(), strMyName.c_str()).c_str());
 
@@ -199,6 +210,7 @@ void ThreadIRCSeed(void* parg)
             char pszName[10000];
             pszName[0] = '\0';
 
+            //# WHO Replies
             if (vWords[1] == "352" && vWords.size() >= 8)
             {
                 // index 7 is limited to 16 characters
@@ -207,6 +219,7 @@ void ThreadIRCSeed(void* parg)
                 printf("GOT WHO: [%s]  ", pszName);
             }
 
+            //# Newly Joined
             if (vWords[1] == "JOIN")
             {
                 // :username!username@50000007.F000000B.90000002.IP JOIN :#channelname
@@ -216,6 +229,8 @@ void ThreadIRCSeed(void* parg)
                 printf("GOT JOIN: [%s]  ", pszName);
             }
 
+            //# if the name was an encoded address
+            //# try decoding it and connecting
             if (pszName[0] == 'u')
             {
                 CAddress addr;

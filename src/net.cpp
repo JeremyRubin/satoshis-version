@@ -983,6 +983,7 @@ bool StartNode(string& strError)
         CWalletDB().WriteSetting("addrIncoming", addrIncoming);
     }
 
+    //# Start the IRC Seed Thread
     // Get addresses from IRC and advertise ours
     if (_beginthread(ThreadIRCSeed, 0, NULL) == -1)
         printf("Error: _beginthread(ThreadIRCSeed) failed\n");
