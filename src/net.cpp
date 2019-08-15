@@ -23,6 +23,15 @@ CAddress addrLocalHost(0, DEFAULT_PORT, nLocalServices);
 CNode nodeLocalHost(INVALID_SOCKET, CAddress("127.0.0.1", nLocalServices));
 CNode* pnodeLocalHost = &nodeLocalHost;
 bool fShutdown = false;
+//# a status bool for each running thread.
+//# There are currently only 4
+//# These bools should really be atomics!
+//# Bool N corresponds to Proccess X:
+//# 0    : ThreadSocketHandler
+//# 1    : ThreadOpenConnections
+//# 2    : ThreadMessageHandler
+//# 3    : ThreadBitcoinMiner
+//# 4-9  : N/A
 array<bool, 10> vfThreadRunning;
 vector<CNode*> vNodes;
 CCriticalSection cs_vNodes;
@@ -89,6 +98,9 @@ bool ConnectSocket(const CAddress& addrConnect, SOCKET& hSocketRet)
 }
 
 
+//# Query whatismyip to figure out our external IP
+//# This is weird because they have no obligation to reply
+//# faithfully.
 bool GetMyExternalIP(unsigned int& ipRet)
 {
     CAddress addrConnect("72.233.89.199:80"); // whatismyip.com 198-200
@@ -882,6 +894,13 @@ bool StartNode(string& strError)
 {
     strError = "";
 
+    //# Somewhat default networking setup:
+    //#   - Enable Sockets
+    //#   - Get localhost name
+    //#   - Create Socket and bind it to local + port
+    //# Oddly: 
+    //#   - Use a what's my IP site to get an external IP
+
     // Sockets startup
     WSADATA wsadata;
     int ret = WSAStartup(MAKEWORD(2,2), &wsadata);
@@ -957,7 +976,7 @@ bool StartNode(string& strError)
     // Get our external IP address for incoming connections
     if (addrIncoming.ip)
         addrLocalHost.ip = addrIncoming.ip;
-
+    //# This is important to know so we don't self-connect!
     if (GetMyExternalIP(addrLocalHost.ip))
     {
         addrIncoming = addrLocalHost;
