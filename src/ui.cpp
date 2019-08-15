@@ -2845,10 +2845,15 @@ class CMyApp: public wxApp
     virtual void OnFatalException();
 };
 
+//# This is essentially declaring that the CMyApp class
+//# is going to handle Bitcoin's main function.
+//# Thus, execution begins with OnInit.
 IMPLEMENT_APP(CMyApp)
 
 bool CMyApp::OnInit()
 {
+    //# Startup our node! If anything fails,
+    //# crash-fail and print the error.
     try
     {
         return OnInit2();
@@ -2861,6 +2866,9 @@ bool CMyApp::OnInit()
     return false;
 }
 
+//# Reads the command line arguments
+//# Commands may be up to 10,000 bytes
+//# Bug: Longer commands will overflow the buffer
 map<string, string> ParseParameters(int argc, char* argv[])
 {
     map<string, string> mapArgs;
@@ -2872,9 +2880,12 @@ map<string, string> ParseParameters(int argc, char* argv[])
         if (strchr(psz, '='))
         {
             pszValue = strchr(psz, '=');
+            //# separates psz into two null terminated strings
             *pszValue++ = '\0';
         }
+        //# Lowercase just the command
         strlwr(psz);
+        //# Canonicalize handling of /command -command
         if (psz[0] == '-')
             psz[0] = '/';
         mapArgs[psz] = pszValue;
@@ -2885,8 +2896,10 @@ map<string, string> ParseParameters(int argc, char* argv[])
 bool CMyApp::OnInit2()
 {
 #ifdef _MSC_VER
+    //# A full heap dump is pesky -- so Satoshi disables it
     // Turn off microsoft heap dump noise for now
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    //# NUL is not a typo, it's correct in DOS
     _CrtSetReportFile(_CRT_WARN, CreateFile("NUL", GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, 0));
 #endif
 
@@ -2898,15 +2911,23 @@ bool CMyApp::OnInit2()
     // Limit to single instance per user
     // Required to protect the database files if we're going to keep deleting log.*
     //
+    //# In windows returns something like "/Users/you",
+    //# so at the end we get "Bitcoin.Users.you"
     wxString strMutexName = wxString("Bitcoin.") + getenv("HOMEPATH");
     for (int i = 0; i < strMutexName.size(); i++)
         if (!isalnum(strMutexName[i]))
             strMutexName[i] = '.';
+    //# This memory purposefully "leaks" so the instance stays alive
+    //# for the programs life
+    //# This is a slight bug, because this should be deleted before the program
+    //# terminates
     wxSingleInstanceChecker* psingleinstancechecker = new wxSingleInstanceChecker(strMutexName);
     if (psingleinstancechecker->IsAnotherRunning())
     {
         printf("Existing instance found\n");
         unsigned int nStart = GetTime();
+        //# Loop for a minute, trying to either show the other instance or wait
+        //# for it to quit.
         loop
         {
             // Show the previous instance and exit
@@ -2934,6 +2955,7 @@ bool CMyApp::OnInit2()
     //
     // Parameters
     //
+    //# Allows saving to PNG format
     wxImage::AddHandler(new wxPNGHandler);
     map<string, string> mapArgs = ParseParameters(argc, argv);
 
@@ -2967,6 +2989,8 @@ bool CMyApp::OnInit2()
     string strErrors;
     int64 nStart, nEnd;
 
+    //# These are IP Addresses, not
+    //# Bitcoin Addresses
     printf("Loading addresses...\n");
     QueryPerformanceCounter((LARGE_INTEGER*)&nStart);
     if (!LoadAddresses())
@@ -2998,6 +3022,7 @@ bool CMyApp::OnInit2()
         printf("mapWallet.size() = %d\n",       mapWallet.size());
         printf("mapAddressBook.size() = %d\n",  mapAddressBook.size());
 
+    //# We load all files before trying to see if there are errors
     if (!strErrors.empty())
     {
         wxMessageBox(strErrors);
@@ -3033,9 +3058,12 @@ bool CMyApp::OnInit2()
         pframeMain = new CMainFrame(NULL);
         pframeMain->Show();
 
+        //# Where the main action begins!
+        //# Launches the main logic threads
         if (!StartNode(strErrors))
             wxMessageBox(strErrors);
-
+        //# As a separate process to the node, we can also run a miner to
+        //# generate coins
         if (fGenerateBitcoins)
             if (_beginthread(ThreadBitcoinMiner, 0, NULL) == -1)
                 printf("Error: _beginthread(ThreadBitcoinMiner) failed\n");
@@ -3045,6 +3073,9 @@ bool CMyApp::OnInit2()
         //
         if (argc >= 2 && stricmp(argv[1], "/send") == 0)
         {
+            //# This test tests connecting to a given IP address, getting a
+            //# PubKey from the peer, and then sending coins (using GUI code to
+            //# do the transfer)
             int64 nValue = 1;
             if (argc >= 3)
                 ParseMoney(argv[2], nValue);
@@ -3067,6 +3098,7 @@ bool CMyApp::OnInit2()
 
         if (mapArgs.count("/randsendtest"))
         {
+            //# This test sends bitcoin to a random address
             if (!mapArgs["/randsendtest"].empty())
                 _beginthread(ThreadRandSendTest, 0, new string(mapArgs["/randsendtest"]));
             else
