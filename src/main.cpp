@@ -1703,6 +1703,7 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     for (int i = 0; i < min(vRecv.size(), (unsigned int)25); i++)
         printf("%02x ", vRecv[i] & 0xff);
     printf("\n");
+    //# Code for simulating message drop
     if (nDropMessagesTest > 0 && GetRand(nDropMessagesTest) == 0)
     {
         printf("dropmessages DROPPING RECV MESSAGE\n");
@@ -1710,7 +1711,8 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     }
 
 
-
+    //# The version command should only be sent once,
+    //# and should preceed any other messages
     if (strCommand == "version")
     {
         // Can only do this once
@@ -1726,6 +1728,7 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
         pfrom->vSend.SetVersion(min(pfrom->nVersion, VERSION));
         pfrom->vRecv.SetVersion(min(pfrom->nVersion, VERSION));
 
+        //# Such clients only receive block headers!
         pfrom->fClient = !(pfrom->nServices & NODE_NETWORK);
         if (pfrom->fClient)
         {
@@ -1733,9 +1736,12 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
             pfrom->vRecv.nType |= SER_BLOCKHEADERONLY;
         }
 
+        //# Our peers time can influence our nodes time
         AddTimeData(pfrom->addr.ip, nTime);
 
         // Ask the first connected node for block updates
+        //# We should ask other nodes for block information too,
+        //# in case this node lies -- but we don't
         static bool fAskedForBlocks;
         if (!fAskedForBlocks && !pfrom->fClient)
         {
