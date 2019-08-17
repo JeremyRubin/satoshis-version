@@ -510,11 +510,15 @@ public:
         return fDisconnect || GetRefCount() <= 0;
     }
 
+    //# The number of referrers to this CNode
+    //# with one artificial referrer for time based expiry
     int GetRefCount()
     {
         return max(nRefCount, 0) + (GetTime() < nReleaseTime ? 1 : 0);
     }
 
+    //# either increments the ref count; or
+    //# sets the release time
     void AddRef(int64 nTimeout=0)
     {
         if (nTimeout != 0)

@@ -425,18 +425,35 @@ void ThreadSocketHandler2(void* parg)
                 if (pnode->fDisconnect)
                     continue;
                 unsigned int ip = pnode->addr.ip;
+                //# This section is sorta confusing!
+                //# It's designed to anti-symmetrically drop duplicate connections.
+                //# It isn't immediately obviously correct code, and in theory
+                //# both nodes should attempt to deduplicate, but here only
+                //# the lower IP node does
                 if (mapFirst.count(ip) && addrLocalHost.ip < ip)
                 {
                     // In case two nodes connect to each other at once,
                     // the lower ip disconnects its outbound connection
                     CNode* pnodeExtra = mapFirst[ip];
+                    
+                    //# Our goal is to make it such that pnode is a pointer to a CNode with
+                    //# an open connection from our peer at ip, or waiting for our peer to open
+                    //# a connection
 
+                    //# This first swap is saying:
+                    //# If pnodeExtra is referenced at least twice and it's connected
+                    //# or at least once and it's not connected
+                    //# then make it the pnode
                     if (pnodeExtra->GetRefCount() > (pnodeExtra->fNetworkNode ? 1 : 0))
                         swap(pnodeExtra, pnode);
-
+                    //# This next line is saying if pnodeExtra has a refcount that is either 0 or 1,
+                    //# depending on if it's connected or not...
+                    //# then we should disconnect it
                     if (pnodeExtra->GetRefCount() <= (pnodeExtra->fNetworkNode ? 1 : 0))
                     {
                         printf("(%d nodes) disconnecting duplicate: %s\n", vNodes.size(), pnodeExtra->addr.ToString().c_str());
+                        //# And pnodeExtra is connected but pnode isn't
+                        //# then swap their roles
                         if (pnodeExtra->fNetworkNode && !pnode->fNetworkNode)
                         {
                             pnode->AddRef();
@@ -453,10 +470,16 @@ void ThreadSocketHandler2(void* parg)
             vector<CNode*> vNodesCopy = vNodes;
             foreach(CNode* pnode, vNodesCopy)
             {
+                //# if the pnode is ready to be collected (otherwise wait to clear queues)
                 if (pnode->ReadyToDisconnect() && pnode->vRecv.empty() && pnode->vSend.empty())
                 {
+                    //# shifts all nodes equal to pnode to the back, then clears them.
+                    //# Bug: in theory, should be checking that only one element is erased
+                    //# to properly disconnect/decrement refcount. Unclear if pnode can be in
+                    //# the vector more than once though.
                     // remove from vNodes
                     vNodes.erase(remove(vNodes.begin(), vNodes.end(), pnode), vNodes.end());
+                    //# This actually closes any open sockets
                     pnode->Disconnect();
 
                     // hold in disconnected pool until all refs are released
@@ -488,6 +511,7 @@ void ThreadSocketHandler2(void* parg)
                 }
             }
         }
+        //# GUI Update!
         if (vNodes.size() != nPrevNodeCount)
         {
             nPrevNodeCount = vNodes.size();
@@ -501,7 +525,8 @@ void ThreadSocketHandler2(void* parg)
         struct timeval timeout;
         timeout.tv_sec  = 0;
         timeout.tv_usec = 50000; // frequency to poll pnode->vSend
-
+        //# This is a bitset struct which informs
+        //# select which FDs to look at
         struct fd_set fdsetRecv;
         struct fd_set fdsetSend;
         FD_ZERO(&fdsetRecv);
@@ -522,6 +547,9 @@ void ThreadSocketHandler2(void* parg)
         }
 
         vfThreadRunning[0] = false;
+        //# Select uses OS magic to get information for all of the open sockets at once
+        //# we have the thread marked not running during this period because the OS
+        //# suspends the thread until the timeout
         int nSelect = select(hSocketMax + 1, &fdsetRecv, &fdsetSend, NULL, &timeout);
         vfThreadRunning[0] = true;
         CheckForShutdown(0);
@@ -536,6 +564,7 @@ void ThreadSocketHandler2(void* parg)
             }
             Sleep(timeout.tv_usec/1000);
         }
+        //# Reseeds our RNG
         RandAddSeed();
 
         //// debug print
@@ -547,6 +576,9 @@ void ThreadSocketHandler2(void* parg)
         //printf("\n");
 
 
+        //# This code accepts one new connection per pass --
+        //# if select says that the listener socket has new data
+        //# we create a new cnode
         //
         // Accept new connections
         //
@@ -575,6 +607,8 @@ void ThreadSocketHandler2(void* parg)
         //
         // Service each socket
         //
+        //# We operate on a copy so that we can do less locking
+        //# Would have been good practice to increment the refcounts!
         vector<CNode*> vNodesCopy;
         CRITICAL_BLOCK(cs_vNodes)
             vNodesCopy = vNodes;
@@ -594,10 +628,17 @@ void ThreadSocketHandler2(void* parg)
                     unsigned int nPos = vRecv.size();
 
                     // typical socket buffer is 8K-64K
+                    //# This is a system dependent parameter!
                     const unsigned int nBufSize = 0x10000;
+                    //# this has the effect of reserving new zeroed out space
+                    //# at the end
                     vRecv.resize(nPos + nBufSize);
+                    //# Only nBytes if > 0, else error code!
                     int nBytes = recv(hSocket, &vRecv[nPos], nBufSize, 0);
+                    //# trim to the actual data read
                     vRecv.resize(nPos + max(nBytes, 0));
+                    //# We were signaled to have data to read, but no bytes
+                    //# which is an clean shutdown
                     if (nBytes == 0)
                     {
                         // socket closed gracefully
@@ -629,6 +670,9 @@ void ThreadSocketHandler2(void* parg)
                     CDataStream& vSend = pnode->vSend;
                     if (!vSend.empty())
                     {
+                        //# nBytes > 0 is a nbytes, <= 0 is a code for shutdown
+                        //# or error.
+                        //# Disconnect if bytes were not sent.
                         int nBytes = send(hSocket, &vSend[0], vSend.size(), 0);
                         if (nBytes > 0)
                         {
@@ -991,6 +1035,7 @@ bool StartNode(string& strError)
     //
     // Start threads
     //
+    //# Start the Socket Handling Thread
     if (_beginthread(ThreadSocketHandler, 0, new SOCKET(hListenSocket)) == -1)
     {
         strError = "Error: _beginthread(ThreadSocketHandler) failed";
