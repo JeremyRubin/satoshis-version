@@ -737,6 +737,14 @@ void ThreadOpenConnections2(void* parg)
         // Wait
         vfThreadRunning[1] = false;
         Sleep(500);
+        //# We don't make new connections if we pass nMaxConnections connections
+        //# Note that this doesn't take cs_vnodes, so technically we can get some race
+        //# here!
+        //# We also check that we aren't making more connections than we have addresses for
+        //#
+        //# This leaves us open to issues if peers who don't advertise on IRC
+        //# connect to us, or if we just have a lot of peers connect to us
+        //# filling up our connection slots as inbound
         while (vNodes.size() >= nMaxConnections || vNodes.size() >= mapAddresses.size())
         {
             CheckForShutdown(1);
@@ -745,6 +753,13 @@ void ThreadOpenConnections2(void* parg)
         vfThreadRunning[1] = true;
         CheckForShutdown(1);
 
+
+        //# The below code is interesting: Issues like the above flooding are relatively easy
+        //# to fix (just dedicate some connections for outbounds). But knowing which connections
+        //# belong to the same party is a bit harder, so it seems more effort was put here.
+        //#
+        //# Thus, Satoshi used the heuristic that IP addresses that are within the same class C (e.g., last bits)
+        //# are likely the same owner, so there is no benefit to connecting to more than one.
 
         // Make a list of unique class C's
         unsigned char pchIPCMask[4] = { 0xff, 0xff, 0xff, 0x00 };
@@ -788,23 +803,31 @@ void ThreadOpenConnections2(void* parg)
             map<unsigned int, vector<CAddress> > mapIP;
             CRITICAL_BLOCK(cs_mapAddresses)
             {
+                //# ndelay = min(30*60 * 2**|vNodes|, 30 * 60 * 2**|4|)
                 unsigned int nDelay = ((30 * 60) << vNodes.size());
                 if (nDelay > 8 * 60 * 60)
                     nDelay = 8 * 60 * 60;
+                //# Just check within the class C
                 for (map<vector<unsigned char>, CAddress>::iterator mi = mapAddresses.lower_bound(CAddress(ipC, 0).GetKey());
                      mi != mapAddresses.upper_bound(CAddress(ipC | ~nIPCMask, 0xffff).GetKey());
                      ++mi)
                 {
                     const CAddress& addr = (*mi).second;
+                    //# if it's had a failed connection recently, don't try to connect
+                    //# randomize on the last failure, more time if there are more
+                    //# IPs total (because nDelay is bigger)
                     unsigned int nRandomizer = (addr.nLastFailed * addr.ip * 7777U) % 20000;
                     if (GetTime() - addr.nLastFailed > nDelay * nRandomizer / 10000)
                         mapIP[addr.ip].push_back(addr);
                 }
             }
+            //# This makes us restart from the top because of the break
+            //# Perhaps intended to be continue?
             if (mapIP.empty())
                 break;
 
             // Choose a random IP in the class C
+            //# Which has not failed recently
             map<unsigned int, vector<CAddress> >::iterator mi = mapIP.begin();
             advance(mi, GetRand(mapIP.size()));
 
@@ -814,11 +837,17 @@ void ThreadOpenConnections2(void* parg)
                 if (addrConnect.ip == addrLocalHost.ip || !addrConnect.IsIPv4() || FindNode(addrConnect.ip))
                     continue;
 
+                //# ConnectNode does a lot of "smart" stuff, looking for existing
+                //# connections, tracking failures, etc.
                 CNode* pnode = ConnectNode(addrConnect);
                 if (!pnode)
                     continue;
                 pnode->fNetworkNode = true;
 
+                //# Unless we're behind some firewall or something
+                //# tell the peer our IP (hopefully they have it)
+                //# Peers, as coded, only add your IP as a result
+                //# of this call (or IRC).
                 if (addrLocalHost.IsRoutable())
                 {
                     // Advertise our address
@@ -830,6 +859,13 @@ void ThreadOpenConnections2(void* parg)
                 // Get as many addresses as we can
                 pnode->PushMessage("getaddr");
 
+                //# This is part of a message broadcasting system. When we connect to a peer
+                //# we subscribe to all channels (message types). 
+                //# It's kinda funny Satoshi didn't just include a subscribe_all function, as
+                //# by default this means 256 different messages on connect!
+                //#
+                //# The receiving node, as noted, does not similarly subscribe.
+                
                 ////// should the one on the receiving end do this too?
                 // Subscribe our local subscription list
                 const unsigned int nHops = 0;
@@ -1043,6 +1079,7 @@ bool StartNode(string& strError)
         return false;
     }
 
+    //# Start a thread to open up new connections
     if (_beginthread(ThreadOpenConnections, 0, NULL) == -1)
     {
         strError = "Error: _beginthread(ThreadOpenConnections) failed";
