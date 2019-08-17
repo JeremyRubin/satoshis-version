@@ -1629,6 +1629,7 @@ bool ProcessMessages(CNode* pfrom)
     loop
     {
         // Scan for message start
+        //# We throw away the data before the message start!
         CDataStream::iterator pstart = search(vRecv.begin(), vRecv.end(), BEGIN(pchMessageStart), END(pchMessageStart));
         if (vRecv.end() - pstart < sizeof(CMessageHeader))
         {
@@ -1655,9 +1656,13 @@ bool ProcessMessages(CNode* pfrom)
 
         // Message size
         unsigned int nMessageSize = hdr.nMessageSize;
+        //# It's possible the whole message hasn't been put in our buffer yet
+        //# in which case we should 'forget' what we've read, and wait
         if (nMessageSize > vRecv.size())
         {
             // Rewind and wait for rest of message
+            //# A bad node can put a huge size, and we'll just keep filling our buffer...
+            //# this can cause our node to run out of mem! So we should block large messages...
             ///// need a mechanism to give up waiting for overlong message size error
             printf("MESSAGE-BREAK 2\n");
             vRecv.insert(vRecv.begin(), BEGIN(hdr), END(hdr));
@@ -1674,6 +1679,7 @@ bool ProcessMessages(CNode* pfrom)
         try
         {
             CheckForShutdown(2);
+            //# Dispatch to message handlers!
             CRITICAL_BLOCK(cs_main)
                 fRet = ProcessMessage(pfrom, strCommand, vMsg);
             CheckForShutdown(2);
@@ -2062,6 +2068,7 @@ bool SendMessages(CNode* pto)
     CRITICAL_BLOCK(cs_main)
     {
         // Don't send anything until we get their version message
+        //# Until we know version, we don't even know it's a bitcoin node
         if (pto->nVersion == 0)
             return true;
 
@@ -2069,6 +2076,7 @@ bool SendMessages(CNode* pto)
         //
         // Message: addr
         //
+        //# Send all addresses that the peer doesn't know already
         vector<CAddress> vAddrToSend;
         vAddrToSend.reserve(pto->vAddrToSend.size());
         foreach(const CAddress& addr, pto->vAddrToSend)
@@ -2082,6 +2090,8 @@ bool SendMessages(CNode* pto)
         //
         // Message: inventory
         //
+        //# INV is a general advertisment of things we have
+        //# that we think our peer doesn't yet have.
         vector<CInv> vInventoryToSend;
         CRITICAL_BLOCK(pto->cs_inventory)
         {
@@ -2102,9 +2112,11 @@ bool SendMessages(CNode* pto)
         //
         // Message: getdata
         //
+        //# Ask our peer for things we don't yet have that they've advertised to us
         vector<CInv> vAskFor;
         int64 nNow = GetTime() * 1000000;
         CTxDB txdb("r");
+        //# Don't ask for something until it's "time"
         while (!pto->mapAskFor.empty() && (*pto->mapAskFor.begin()).first <= nNow)
         {
             const CInv& inv = (*pto->mapAskFor.begin()).second;

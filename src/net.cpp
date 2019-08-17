@@ -917,13 +917,23 @@ void ThreadMessageHandler2(void* parg)
             vNodesCopy = vNodes;
         foreach(CNode* pnode, vNodesCopy)
         {
+            //# Ensures no one deletes the pnode out from under us!
             pnode->AddRef();
+
+            //# We receive messages before we send them.
+            //# This makes sense because we may be responding
+            //# to requests received.
+            //# In some senses, it would make sense to process all
+            //# messages where we might learn something useful before sending
+            //# out responses (e.g., if we learn of a block via an INV, maybe another
+            //# peer already sent it before we getdata it)
 
             // Receive messages
             TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
                 ProcessMessages(pnode);
 
             // Send messages
+            //# We send more than just these, but these are periodic messages we send
             TRY_CRITICAL_BLOCK(pnode->cs_vSend)
                 SendMessages(pnode);
 
@@ -1087,6 +1097,7 @@ bool StartNode(string& strError)
         return false;
     }
 
+    //# Start a thread to handle messages from all nodes
     if (_beginthread(ThreadMessageHandler, 0, NULL) == -1)
     {
         strError = "Error: _beginthread(ThreadMessageHandler) failed";
