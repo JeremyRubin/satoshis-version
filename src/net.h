@@ -568,10 +568,26 @@ public:
 
     void BeginMessage(const char* pszCommand)
     {
+        //# Grab the lock so no messages are interleaved
         EnterCriticalSection(&cs_vSend);
+        //# This seems like a bug, because
+        //# were this to happen, we'd leave the critical section
+        //# and then proceed to modify the buffers without lock.
+        //# the condition should never be reached, so could be an assert
         if (nPushPos != -1)
             AbortMessage();
         nPushPos = vSend.size();
+        //# Begin each message with a header!
+        //# The header is:
+        //# 4 bytes magic number
+        //# 12 bytes command
+        //# 4 bytes size
+        //#
+        //# We don't know the size yet, so it will have to be finalized
+        //# later
+        //#
+        //# Satoshi probably should have made the command only 8 bytes so it
+        //# could be a 64 bit integer, and switch statements could be used
         vSend << CMessageHeader(pszCommand, 0);
         printf("sending: %-12s ", pszCommand);
     }
@@ -580,6 +596,7 @@ public:
     {
         if (nPushPos == -1)
             return;
+        //# Don't erase the prior msg
         vSend.resize(nPushPos);
         nPushPos = -1;
         LeaveCriticalSection(&cs_vSend);
@@ -588,6 +605,7 @@ public:
 
     void EndMessage()
     {
+        //# This is code to allow simulating message drop.
         extern int nDropMessagesTest;
         if (nDropMessagesTest > 0 && GetRand(nDropMessagesTest) == 0)
         {
@@ -601,6 +619,7 @@ public:
 
         // Patch in the size
         unsigned int nSize = vSend.size() - nPushPos - sizeof(CMessageHeader);
+        //# This makes endianness assumptions!
         memcpy((char*)&vSend[nPushPos] + offsetof(CMessageHeader, nMessageSize), &nSize, sizeof(nSize));
 
         printf("(%d bytes)  ", nSize);
@@ -633,6 +652,10 @@ public:
 
 
 
+    //# The various versions of PushMessage all
+    //# basically do a BeginMessage()/EndMessage()
+    //# with some parameters done in between (these could
+    //# be a templated list)
     void PushMessage(const char* pszCommand)
     {
         try
