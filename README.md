@@ -1,5 +1,8 @@
 This is a project to annotate the original Satoshi Bitcoin codebase.
 
+The way to read this project is to go through the commits one-by-one from the
+beginning, and read the code surrounding where any documentation has been added.
+
 Donations
 ========
 
