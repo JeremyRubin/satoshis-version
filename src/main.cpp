@@ -1224,6 +1224,12 @@ bool CBlock::AcceptBlock()
     if (hashBestChain == hash)
         RelayInventory(CInv(MSG_BLOCK, hash));
 
+    //# This code was removed before launch! Originally, atoms would be 
+    //# added to a pubkey whenever a block was mined by a user.
+    //# The atom was supposed to be generated randomly, but it's easy to see
+    //# that in USRHT_MAX range, it's likely to have collisions.
+    //# Note that these atoms are only kept locally!
+
     // // Add atoms to user reviews for coins created
     // vector<unsigned char> vchPubKey;
     // if (ExtractPubKey(vtx[0].vout[0].scriptPubKey, false, vchPubKey))
@@ -1942,6 +1948,8 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     //# for the user leaving the review.
     //# It isn't exactly clear how a user gets atoms, suggesting the feature
     //# isn't complete.
+    //# In a comment in AcceptBlock, atoms used to be created whenever a key mined
+    //# a block, but that was commented out before launch.
     else if (strCommand == "review")
     {
         CDataStream vMsg(vRecv);
