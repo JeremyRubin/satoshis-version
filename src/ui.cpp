@@ -2530,6 +2530,8 @@ void CViewProductDialog::UpdateProductDisplay(bool fDetails)
         // Get reviewer's number of atoms
         vector<CReview*> vSortedReviews;
         vSortedReviews.reserve(vReviews.size());
+        //# Atoms are used to sort the reviews, thus atoms are a system for
+        //# reviewing reviewers
         for (vector<CReview>::reverse_iterator it = vReviews.rbegin(); it != vReviews.rend(); ++it)
         {
             CReview& review = *it;

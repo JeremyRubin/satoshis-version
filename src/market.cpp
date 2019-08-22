@@ -144,8 +144,10 @@ bool AddAtomsAndPropagate(uint256 hashUserStart, const vector<unsigned short>& v
 {
     CReviewDB reviewdb;
     map<uint256, vector<unsigned short> > pmapPropagate[2];
+    //# Start with just the user mentioned getting the passed in atoms
     pmapPropagate[0][hashUserStart] = vAtoms;
 
+    //# This flips between from/to until one side is empty
     for (int side = 0; !pmapPropagate[side].empty(); side = 1 - side)
     {
         map<uint256, vector<unsigned short> >& mapFrom = pmapPropagate[side];
@@ -175,6 +177,7 @@ bool AddAtomsAndPropagate(uint256 hashUserStart, const vector<unsigned short>& v
             if (user.vAtomsIn.size() == nIn && user.vAtomsNew.size() == nNew)
                 continue;
 
+            //# This follows the user's links and adds new atoms to that user
             // Propagate
             if (user.vAtomsOut.size() > nOut)
                 foreach(const uint256& hash, user.vLinksOut)
@@ -224,6 +227,7 @@ bool CReview::AcceptReview()
 
     // Propagate atoms to recipient
     vector<unsigned short> vZeroAtom(1, 0);
+    //# How do the initial atoms get created? By default it is vZeroAtom for all...
     if (!AddAtomsAndPropagate(hashTo, user.vAtomsOut.size() ? user.vAtomsOut : vZeroAtom, false))
         return false;
 

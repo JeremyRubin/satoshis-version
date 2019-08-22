@@ -1939,7 +1939,9 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     //# Each review is signed by the sender and bears a time, a review, and
     //# stars.
     //# There is a concept of 'atoms' which function a bit like a rating
-    //# for a user but it seems like the functionality was never fully built out
+    //# for the user leaving the review.
+    //# It isn't exactly clear how a user gets atoms, suggesting the feature
+    //# isn't complete.
     else if (strCommand == "review")
     {
         CDataStream vMsg(vRecv);
