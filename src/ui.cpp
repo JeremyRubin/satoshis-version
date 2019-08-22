@@ -1431,6 +1431,7 @@ CSendingDialog::CSendingDialog(wxWindow* parent, const CAddress& addrIn, int64 n
     SetTitle(strprintf("Sending %s to %s...", FormatMoney(nPrice).c_str(), wtx.mapValue["to"].c_str()));
     m_textCtrlStatus->SetValue("");
 
+    //# Pass off to another thread to run the transfer
     _beginthread(SendingDialogStartTransfer, 0, this);
 }
 
@@ -1571,6 +1572,7 @@ void SendingDialogStartTransfer(void* parg)
     ((CSendingDialog*)parg)->StartTransfer();
 }
 
+//# Perform the transfer
 void CSendingDialog::StartTransfer()
 {
     // Make sure we have enough money
@@ -1593,6 +1595,7 @@ void CSendingDialog::StartTransfer()
     // Send order to seller, with response going to OnReply2 via event handler
     if (!Status("Requesting public key..."))
         return;
+    //# When the reply is received, it will go on to the next Dialog
     pnode->PushRequest("checkorder", wtx, SendingDialogOnReply2, this);
 }
 
@@ -1601,6 +1604,7 @@ void SendingDialogOnReply2(void* parg, CDataStream& vRecv)
     ((CSendingDialog*)parg)->OnReply2(vRecv);
 }
 
+//# Finalize the payment to the seller
 void CSendingDialog::OnReply2(CDataStream& vRecv)
 {
     if (!Status("Received public key..."))
@@ -1649,6 +1653,7 @@ void CSendingDialog::OnReply2(CDataStream& vRecv)
         // Pay
         if (!Status("Creating transaction..."))
             return;
+        //# nTransactionFee is a user setting
         if (nPrice + nTransactionFee > GetBalance())
         {
             Error("You don't have enough money");
@@ -1679,6 +1684,7 @@ void CSendingDialog::OnReply2(CDataStream& vRecv)
         if (!Status("Sending payment..."))
             return;
 
+        //# This internally commits our outputs as spent
         // Commit
         if (!CommitTransactionSpent(wtx))
         {
@@ -1687,6 +1693,8 @@ void CSendingDialog::OnReply2(CDataStream& vRecv)
         }
 
         // Send payment tx to seller, with response going to OnReply3 via event handler
+        //# we finalize with this submit order. Technically this is superfluous
+        //# with broadcasting
         pnode->PushRequest("submitorder", wtx, SendingDialogOnReply3, this);
 
         // Accept and broadcast transaction
@@ -1704,6 +1712,7 @@ void SendingDialogOnReply3(void* parg, CDataStream& vRecv)
     ((CSendingDialog*)parg)->OnReply3(vRecv);
 }
 
+//# This reply marks the end of the trade
 void CSendingDialog::OnReply3(CDataStream& vRecv)
 {
     int nRet;
@@ -1721,6 +1730,7 @@ void CSendingDialog::OnReply3(CDataStream& vRecv)
     catch (...)
     {
         //// what do we want to do about this?
+        //# Maybe leave a bad review ;)
         Error("Payment was sent, but an invalid response was received");
         return;
     }
@@ -2649,6 +2659,7 @@ void CViewProductDialog::GetOrder(CWalletTx& wtx)
     }
 }
 
+//# Click this button to begin purchasing product...
 void CViewProductDialog::OnButtonSubmitForm(wxCommandEvent& event)
 {
     m_buttonSubmitForm->Enable(false);

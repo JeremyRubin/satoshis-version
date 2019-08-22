@@ -305,6 +305,8 @@ public:
 
 
 
+//# DEPRECATED
+//# A UI Class to view products for sale from the node
 class CViewProductDialog : public CViewProductDialogBase
 {
 protected:

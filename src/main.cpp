@@ -1933,6 +1933,13 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     }
 
 
+    //# DEPRECATED
+    //# Review was intended to allow certain attestations to be made and stored
+    //# in each node, for a "decentralized market" system.
+    //# Each review is signed by the sender and bears a time, a review, and
+    //# stars.
+    //# There is a concept of 'atoms' which function a bit like a rating
+    //# for a user but it seems like the functionality was never fully built out
     else if (strCommand == "review")
     {
         CDataStream vMsg(vRecv);
@@ -1986,6 +1993,13 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     }
 
 
+    //# DEPRECATED
+    //# checkorder 
+    //# hashReply is a random nonce used to track responses
+    //# order is a transaction template
+    //# 
+    //# in response, the node gives the requester
+    //# a public key and approves the order.
     else if (strCommand == "checkorder")
     {
         uint256 hashReply;
@@ -2005,6 +2019,13 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     }
 
 
+    //# DEPRECATED
+    //# submitorder takes two parameters, a hashReply and a wtxNew.
+    //# hashReply is a random nonce used to track responses
+    //# wtxNew is a transaction proposed to the recipient
+    //#
+    //# After a checkorder to receive keys and other details,
+    //# the payer does a submitorder.
     else if (strCommand == "submitorder")
     {
         uint256 hashReply;
@@ -2027,6 +2048,10 @@ bool ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     }
 
 
+    //# DEPRECATED
+    //# reply accepts a nonce which routes the message to a callback.
+    //# The callback is called, and more arguments are deserialized.
+    //# This is essentially a 'dynamic dispatch' system
     else if (strCommand == "reply")
     {
         uint256 hashReply;
